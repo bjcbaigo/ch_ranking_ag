@@ -396,7 +396,7 @@
 // =============================================
 // 1. Publicá el archivo .gs en Apps Script como aplicacion web
 // 2. Copiá la URL del deployment y pegala abajo:
-var GAS_URL = "https://script.google.com/macros/s/AKfycbwYCkM7J_DaBmcaj90RIrB04sXKayQHRgPlDFoSeiWhPQmSRHlqFBqF6vFllrxC-okH/exec";
+var GAS_URL = "https://script.google.com/macros/s/AKfycbx8N539gfGYNdx0by92DM67rgURXNpIJZ6nZZD6RaSdZPQHGUB6vZVnD6cCQUPkl5CB/exec";
 
 // =============================================
 // ESTADO GLOBAL
@@ -646,19 +646,23 @@ async function sendMessage() {
   msgs.scrollTop = msgs.scrollHeight;
 
   try {
-    var messages = chatHistory.slice(-12);
-    var response = await fetch("https://api.anthropic.com/v1/messages", {
+    // Llamar al GAS proxy (que a su vez llama a Anthropic desde el servidor)
+    var response = await fetch(GAS_URL, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "text/plain" },
       body: JSON.stringify({
-        model: "claude-sonnet-4-20250514",
-        max_tokens: 1000,
-        system: buildSystemContext(),
-        messages: messages
+        system:   buildSystemContext(),
+        messages: chatHistory.slice(-12)
       })
     });
-    var data    = await response.json();
-    var reply   = (data.content && data.content.find(function(b){ return b.type === "text"; })) ? data.content.find(function(b){ return b.type === "text"; }).text : "Sin respuesta.";
+
+    var data  = await response.json();
+
+    if (data.error) {
+      throw new Error(data.mensaje || "Error en el proxy GAS");
+    }
+
+    var reply = data.reply || "Sin respuesta.";
 
     document.getElementById(typingId) && document.getElementById(typingId).remove();
     appendMessage("agent", reply);
@@ -666,7 +670,7 @@ async function sendMessage() {
 
   } catch(err) {
     document.getElementById(typingId) && document.getElementById(typingId).remove();
-    appendMessage("agent", "⚠️ Error al conectar con el agente. Verificá tu conexión a internet.");
+    appendMessage("agent", "⚠️ No se pudo obtener respuesta del agente. Detalle: " + err.message);
   }
 
   agenteBusy = false;
