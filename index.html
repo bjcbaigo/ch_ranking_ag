@@ -216,7 +216,7 @@ body::before{
 <body>
 
 <!-- LOADING (oculto al inicio) -->
-<div class="screen hidden" id="loading-screen">
+<div class="screen" id="loading-screen" style="display:none">
   <div style="text-align:center">
     <div class="loading-logo">CHEMES</div>
     <div class="loading-bar"><div class="loading-bar-fill"></div></div>
@@ -225,7 +225,7 @@ body::before{
 </div>
 
 <!-- ERROR (oculto al inicio) -->
-<div class="screen hidden" id="error-screen">
+<div class="screen" id="error-screen" style="display:none">
   <div style="text-align:center">
     <div class="error-icon">⚠️</div>
     <div class="error-title">No se pudieron cargar los datos</div>
@@ -354,19 +354,23 @@ var agenteBusy   = false;
 // ── LOGIN ──
 document.getElementById("login-name").addEventListener("keydown",function(e){if(e.key==="Enter")doLogin();});
 
+function mostrarPantalla(cual) {
+  document.getElementById("login-screen").style.display    = cual === "login"   ? "flex" : "none";
+  document.getElementById("loading-screen").style.display  = cual === "loading" ? "flex" : "none";
+  document.getElementById("error-screen").style.display    = cual === "error"   ? "flex" : "none";
+}
+
 function doLogin() {
-  var inp = document.getElementById("login-name");
+  var inp  = document.getElementById("login-name");
   var name = inp.value.trim();
   if (!name) {
-    inp.classList.add("err");
-    inp.placeholder = "Ingresá tu nombre...";
+    inp.style.borderColor = "#c0392b";
+    inp.placeholder = "Ingresá tu nombre primero...";
     inp.focus();
     return;
   }
   currentUser = name;
-  // Ocultar login, mostrar loading, arrancar carga
-  document.getElementById("login-screen").classList.add("hidden");
-  document.getElementById("loading-screen").classList.remove("hidden");
+  mostrarPantalla("loading");
   document.getElementById("loading-text").textContent = "CONECTANDO CON DRIVE...";
   cargarDatos();
 }
@@ -415,14 +419,14 @@ function recargarDatos() {
 
 function mostrarLoading(t) {
   document.getElementById("loading-text").textContent = t || "CARGANDO...";
-  document.getElementById("loading-screen").classList.remove("hidden");
-  document.getElementById("error-screen").classList.add("hidden");
+  mostrarPantalla("loading");
 }
-function ocultarLoading() { document.getElementById("loading-screen").classList.add("hidden"); }
+function ocultarLoading() {
+  mostrarPantalla("none");
+}
 function mostrarError(msg) {
-  document.getElementById("loading-screen").classList.add("hidden");
   document.getElementById("error-msg").textContent = msg;
-  document.getElementById("error-screen").classList.remove("hidden");
+  mostrarPantalla("error");
 }
 
 // ── RENDER ──
