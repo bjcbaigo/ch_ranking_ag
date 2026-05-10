@@ -548,41 +548,86 @@ function formatFecha(f) {
 // ── CHAT ──
 function formatPesos(n){return "$ "+Math.round(n).toLocaleString("es-AR");}
 
-function buildSystemContext() {
+function buscarEnCatalogo(query) {
+  if (!RANKING_DATA || !RANKING_DATA.catalogo) return [];
+  var q = query.toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g,"");
+  return RANKING_DATA.catalogo.filter(function(item) {
+    var nombre = (item.a || "").toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g,"");
+    var rubro  = (item.r || "").toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g,"");
+    var cod    = (item.c || "").toLowerCase();
+    // buscar cada palabra del query
+    var palabras = q.split(/\s+/).filter(function(p){return p.length>2;});
+    return palabras.every(function(p){ return nombre.indexOf(p)>=0 || rubro.indexOf(p)>=0 || cod.indexOf(p)>=0; });
+  }).slice(0,20);
+}
+
+function buildSystemContext(userMsg) {
   var d=RANKING_DATA,r=d.resumen,fin=r.capital_total&&r.capital_total>0;
-  var ctx="Sos un agente experto en análisis de inventario y ventas de CHEMES, cadena de retail con ~31 sucursales en Santa Fe, Argentina.\n\n";
-  ctx+="DATOS AL "+r.fecha+":\n";
-  ctx+="- Artículos: "+r.total_articulos+" en "+r.rubros+" rubros\n";
-  ctx+="- Sin stock: "+r.sin_stock+" | Con venta este mes: "+r.con_venta_mes+"\n";
-  ctx+="- Quiebres: "+r.quiebres+" | Stock crítico: "+r.stock_bajo+" | Sin movimiento anual: "+r.sin_movimiento+"\n";
+
+  var ctx="Sos un agente experto en análisis de inventario y ventas de CHEMES, cadena de retail con ~31 sucursales en Santa Fe, Argentina.
+";
+  ctx+="Las claves del catálogo compacto son: c=código, a=artículo, r=rubro, s=stock total, l1=precio L1, vs=valor stock, m=ventas mes, m3=ventas 3 meses, y=ventas año, cd/ca/cn=stock por depósito, p=proveedor.
+
+";
+
+  ctx+="RESUMEN AL "+r.fecha+":
+";
+  ctx+="- Artículos: "+r.total_articulos+" en "+r.rubros+" rubros
+";
+  ctx+="- Sin stock: "+r.sin_stock+" | Con venta este mes: "+r.con_venta_mes+"
+";
+  ctx+="- Quiebres: "+r.quiebres+" | Stock crítico: "+r.stock_bajo+" | Sin movimiento: "+r.sin_movimiento+"
+";
   if(fin){
-    ctx+="\nFINANCIERO (L1):\n";
-    ctx+="- Capital total en stock: "+formatPesos(r.capital_total)+"\n";
-    ctx+="- Capital inmovilizado (sin mov): "+formatPesos(r.capital_inmovilizado)+" ("+Math.round(r.capital_inmovilizado/r.capital_total*100)+"%)\n";
-    ctx+="- Ventas perdidas por quiebres/mes: "+formatPesos(r.ventas_potenciales_mes)+"\n";
+    ctx+="- Capital total: "+formatPesos(r.capital_total)+"
+";
+    ctx+="- Capital inmovilizado: "+formatPesos(r.capital_inmovilizado)+" ("+Math.round(r.capital_inmovilizado/r.capital_total*100)+"%)
+";
+    ctx+="- Ventas perdidas/mes por quiebres: "+formatPesos(r.ventas_potenciales_mes)+"
+";
   }
-  ctx+="\nTOP 10 ÚLTIMO MES:\n";
+
+  // Búsqueda en catálogo completo si hay mensaje del usuario
+  if (userMsg && d.catalogo && d.catalogo.length > 0) {
+    var encontrados = buscarEnCatalogo(userMsg);
+    if (encontrados.length > 0) {
+      ctx+="
+ARTÍCULOS ENCONTRADOS EN EL CATÁLOGO (búsqueda: '"+userMsg+"'):
+";
+      ctx+=encontrados.map(function(a){
+        var precio = a.l1 > 0 ? " | L1: "+formatPesos(a.l1) : "";
+        var valor  = a.vs > 0 ? " | ValorStock: "+formatPesos(a.vs) : "";
+        var depo   = " | CD:"+a.cd+" CA:"+a.ca+" CN:"+a.cn;
+        return "→ ["+a.c+"] "+a.a+" ("+a.r+") — Stock:"+a.s+depo+precio+valor+" | Mes:"+a.m+"uds | 3m:"+a.m3+" | Año:"+a.y+" | Proveedor:"+a.p;
+      }).join("
+");
+      ctx+="
+";
+    }
+  }
+
+  ctx+="
+TOP 10 ÚLTIMO MES:
+";
   ctx+=d.top10_mes.map(function(a,i){
-    var f=fin&&a.L1?" | L1:"+formatPesos(a.L1)+" | ValorStock:"+formatPesos(a.ValorStock):"";
+    var f=fin&&a.L1?" | L1:"+formatPesos(a.L1)+" | Stock$:"+formatPesos(a.ValorStock):"";
     return (i+1)+". "+a.ARTICULO+" ("+a.RUBRO+") — "+a.VentasUltimoMes+" uds/mes, stock:"+a.STOCK+f;
-  }).join("\n");
-  ctx+="\n\nQUIEBRES:\n";
+  }).join("
+");
+
+  ctx+="
+
+QUIEBRES:
+";
   ctx+=d.quiebres.map(function(a){
     var p=fin&&a.L1?" | perdida/mes:"+formatPesos(a.VentasUltimoMes*a.L1):"";
     return "- "+a.ARTICULO+" ("+a.RUBRO+") — "+a.VentasUltimoMes+" uds/mes sin stock"+p;
-  }).join("\n");
-  ctx+="\n\nSTOCK CRÍTICO:\n";
-  ctx+=d.stock_bajo.map(function(a){
-    var v=fin&&a.L1?" | valor:"+formatPesos(a.ValorStock):"";
-    return "- "+a.ARTICULO+" ("+a.RUBRO+") — stock:"+a.STOCK+", v3m:"+a.VentasUltimos3Meses+v;
-  }).join("\n");
-  ctx+="\n\nINMOVILIZADO (por valor $):\n";
-  var li=d.top10_inmovilizado&&d.top10_inmovilizado.length>0?d.top10_inmovilizado:d.sin_movimiento;
-  ctx+=li.map(function(a){
-    var v=fin&&a.ValorStock?" | capital:"+formatPesos(a.ValorStock):"";
-    return "- "+a.ARTICULO+" ("+a.RUBRO+") — "+a.STOCK+" uds"+v;
-  }).join("\n");
-  ctx+="\n\nRespondé en español, conciso y profesional. Usá $ con puntos de miles para montos. Podés calcular recaudación (uds × L1), capital inmovilizado, ventas perdidas. Si algo no está en los datos, decílo claramente.";
+  }).join("
+");
+
+  ctx+="
+
+Respondé en español, conciso y profesional. Usá $ con puntos de miles. Si encontrás artículos en la sección ARTÍCULOS ENCONTRADOS, usá esos datos para responder con precisión. Si no encontrás el artículo, decílo claramente.";
   return ctx;
 }
 
@@ -623,7 +668,7 @@ async function sendMessage() {
 
   try {
     var resp=await fetch(GAS_URL,{method:"POST",headers:{"Content-Type":"text/plain"},
-      body:JSON.stringify({system:buildSystemContext(),messages:chatHistory.slice(-12)})});
+      body:JSON.stringify({system:buildSystemContext(text),messages:chatHistory.slice(-12)})});
     var data=await resp.json();
     if(data.error)throw new Error(data.mensaje||"Error GAS");
     var reply=data.reply||"Sin respuesta.";
