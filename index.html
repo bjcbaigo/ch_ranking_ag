@@ -577,29 +577,97 @@ function formatFecha(f) {
 // =============================================
 // CHAT / AGENTE IA
 // =============================================
+function formatPesos(n) {
+  return "$ " + Math.round(n).toLocaleString("es-AR");
+}
+
 function buildSystemContext() {
   var d = RANKING_DATA;
   var r = d.resumen;
-  return "Sos un agente experto en análisis de inventario y ventas de CHEMES, cadena de retail con ~31 sucursales en Santa Fe, Argentina.\n\n" +
-    "DATOS DEL REPORTE AL " + r.fecha + ":\n" +
-    "- Total artículos: " + r.total_articulos + "\n" +
-    "- Rubros: " + r.rubros + "\n" +
-    "- Sin stock: " + r.sin_stock + "\n" +
-    "- Con venta este mes: " + r.con_venta_mes + "\n" +
-    "- Quiebres (sin stock + venta reciente): " + r.quiebres + "\n" +
-    "- Stock crítico (<5 uds con rotación activa): " + r.stock_bajo + "\n" +
-    "- Sin movimiento en el año: " + r.sin_movimiento + "\n\n" +
-    "TOP 10 ÚLTIMO MES:\n" +
-    d.top10_mes.map(function(a,i){ return (i+1)+". "+a.ARTICULO+" ("+a.RUBRO+") — "+a.VentasUltimoMes+" uds/mes, stock: "+a.STOCK; }).join("\n") + "\n\n" +
-    "QUIEBRES DE STOCK:\n" +
-    d.quiebres.map(function(a){ return "- "+a.ARTICULO+" ("+a.RUBRO+") — "+a.VentasUltimoMes+" uds/mes vendidas, stock actual: 0"; }).join("\n") + "\n\n" +
-    "STOCK CRÍTICO (stock 1-4, con rotación):\n" +
-    d.stock_bajo.map(function(a){ return "- "+a.ARTICULO+" ("+a.RUBRO+") — stock: "+a.STOCK+", ventas 3m: "+a.VentasUltimos3Meses; }).join("\n") + "\n\n" +
-    "SIN MOVIMIENTO ANUAL (mayor stock primero):\n" +
-    d.sin_movimiento.map(function(a){ return "- "+a.ARTICULO+" ("+a.RUBRO+") — stock inmovilizado: "+a.STOCK+" uds"; }).join("\n") + "\n\n" +
-    "Respondé siempre en español, de forma concisa y profesional. Usá listas cuando sea útil. " +
-    "Podés calcular proporciones, identificar patrones, sugerir acciones comerciales. " +
-    "Si te preguntan algo fuera de estos datos, decílo claramente.";
+  var tieneFinanciero = r.capital_total && r.capital_total > 0;
+
+  var ctx = "Sos un agente experto en análisis de inventario y ventas de CHEMES, cadena de retail con ~31 sucursales en Santa Fe, Argentina.
+
+";
+  ctx += "DATOS DEL REPORTE AL " + r.fecha + ":
+";
+  ctx += "- Total artículos: " + r.total_articulos + "
+";
+  ctx += "- Rubros: " + r.rubros + "
+";
+  ctx += "- Sin stock: " + r.sin_stock + "
+";
+  ctx += "- Con venta este mes: " + r.con_venta_mes + "
+";
+  ctx += "- Quiebres (sin stock + venta reciente): " + r.quiebres + "
+";
+  ctx += "- Stock crítico (<5 uds con rotación activa): " + r.stock_bajo + "
+";
+  ctx += "- Sin movimiento en el año: " + r.sin_movimiento + "
+";
+
+  if (tieneFinanciero) {
+    ctx += "
+ANÁLISIS FINANCIERO (precio lista L1):
+";
+    ctx += "- Capital total en stock: " + formatPesos(r.capital_total) + "
+";
+    ctx += "- Capital inmovilizado (sin movimiento): " + formatPesos(r.capital_inmovilizado) + " (" + Math.round(r.capital_inmovilizado/r.capital_total*100) + "% del total)
+";
+    ctx += "- Ventas potenciales perdidas por quiebres/mes: " + formatPesos(r.ventas_potenciales_mes) + "
+";
+  }
+
+  ctx += "
+TOP 10 ÚLTIMO MES:
+";
+  ctx += d.top10_mes.map(function(a,i){
+    var fin = tieneFinanciero && a.L1 ? " | L1: "+formatPesos(a.L1)+" | Stock valor: "+formatPesos(a.ValorStock) : "";
+    return (i+1)+". "+a.ARTICULO+" ("+a.RUBRO+") — "+a.VentasUltimoMes+" uds/mes, stock: "+a.STOCK+fin;
+  }).join("
+");
+
+  ctx += "
+
+QUIEBRES DE STOCK:
+";
+  ctx += d.quiebres.map(function(a){
+    var perdida = tieneFinanciero && a.L1 ? " | Venta perdida/mes: "+formatPesos(a.VentasUltimoMes*a.L1) : "";
+    return "- "+a.ARTICULO+" ("+a.RUBRO+") — "+a.VentasUltimoMes+" uds/mes sin stock"+perdida;
+  }).join("
+");
+
+  ctx += "
+
+STOCK CRÍTICO (stock 1-4, con rotación):
+";
+  ctx += d.stock_bajo.map(function(a){
+    var val = tieneFinanciero && a.L1 ? " | Valor stock: "+formatPesos(a.ValorStock) : "";
+    return "- "+a.ARTICULO+" ("+a.RUBRO+") — stock: "+a.STOCK+", ventas 3m: "+a.VentasUltimos3Meses+val;
+  }).join("
+");
+
+  ctx += "
+
+STOCK INMOVILIZADO SIN MOVIMIENTO ANUAL:
+";
+  var listInmov = d.top10_inmovilizado && d.top10_inmovilizado.length > 0 ? d.top10_inmovilizado : d.sin_movimiento;
+  ctx += listInmov.map(function(a){
+    var val = tieneFinanciero && a.ValorStock ? " | Capital inmovilizado: "+formatPesos(a.ValorStock) : "";
+    return "- "+a.ARTICULO+" ("+a.RUBRO+") — stock: "+a.STOCK+" uds"+val;
+  }).join("
+");
+
+  ctx += "
+
+PRECIOS L1 disponibles en cada artículo para calcular recaudación, márgenes y capital.
+";
+  ctx += "Respondé siempre en español, de forma concisa y profesional. ";
+  ctx += "Podés calcular recaudación (uds vendidas × L1), capital inmovilizado, ventas perdidas por quiebres, y comparar rubros. ";
+  ctx += "Usá formato $ con puntos de miles para montos. ";
+  ctx += "Si te preguntan algo fuera de estos datos, decílo claramente.";
+
+  return ctx;
 }
 
 function initChat(firstName) {
